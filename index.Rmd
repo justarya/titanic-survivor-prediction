@@ -1,0 +1,197 @@
+---
+title: "LBB - Titanic Survivor Prediction"
+author: "Arya"
+date: "7/12/2020"
+output:
+  html_document:
+    theme: "cerulean"
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(gtools)
+library(gmodels)
+library(class)
+library(caret)
+library(rsample)
+```
+
+# Objective
+
+We will predict wheter a titanic passanger is survive or not.
+
+# Preparing Data
+
+## Import Data
+
+```{r}
+ttn <- read.csv("datasets/titanic.csv")
+glimpse(ttn)
+```
+
+## Cleaning data
+
+As we prepare the data, let's optimize our data by convert integer to factor.
+```{r}
+ttn <- ttn %>% 
+  mutate_if(is.integer, as.factor)
+
+glimpse(ttn)
+```
+
+Check if there're NAs in the data
+```{r}
+colSums(is.na(ttn))
+```
+
+```{r}
+ttn <- ttn %>% 
+  replace_na(list(Age=mean(ttn$Age, na.rm = TRUE)))
+```
+
+Recheck NA
+```{r}
+colSums(is.na(ttn))
+```
+
+## Cross Validation
+To validate our model we need to split the dataset, since the data already seperated by train and test data. We don't need to split the dataset. And just need to import the test data.
+
+We need to split our dataset to train and test data, so we can validate our model
+
+```{r}
+set.seed(123)
+split <- sample(nrow(ttn), nrow(ttn)*0.8)
+ttn.train <- ttn[split,]
+ttn.test <- ttn[-split,]
+```
+
+## Balancing target variabel
+Before modelling our model, we need to check whether our target (`Survived`) variable are balance or not.
+
+```{r}
+prop.table(
+  table(ttn.train$Survived)
+)
+```
+
+Our target variable is balance enought to be made as model.
+
+# Logistic Regression
+
+## Modeling
+
+In this model, we will use `Pclass`, `Sex`, `Age`, `SibSp` as a predictor
+```{r}
+model <- glm(Survived~Pclass+Sex+Age+SibSp, ttn.train, family="binomial")
+```
+
+```{r}
+summary(model)
+```
+
+## Predicting
+
+For predicting we will use threshold at 0.5
+
+```{r}
+t <- 0.5
+
+prob.model <- predict(model, newdata=ttn.test, type="response")
+result.model <- ifelse(prob.model > t, "1", "0")
+
+data.frame(
+  predicted=result.model,
+  reference=ttn.test$Survived
+)
+```
+
+## Model Evaluation
+
+```{r}
+confusionMatrix(
+  data=as.factor(result.model),
+  reference=as.factor(ttn.test$Survived),
+  positive="1"
+)
+```
+
+We will use mesure our model accuracy using recall, since determining how many people survive is important.
+Our model get 0.71 in recall.
+
+# K-Nearest Neighbour
+
+## Fitting data to KNN
+```{r}
+summary(ttn)
+```
+
+**Creating dummyvariable**
+```{r}
+dmy <- dummyVars("~Survived+Pclass+Sex+Age+SibSp", data=ttn)
+dmy <- data.frame(predict(dmy, ttn))
+str(dmy)
+```
+
+**Remove dummy variable with only two category**
+```{r}
+dmy <- dmy %>% 
+  select(-c(Survived.0, Sex.female))
+```
+
+## Cross Validation
+
+```{r}
+ttn.train.x <- scale(dmy[split,-1])
+ttn.test.x <- scale(
+  dmy[-split,-1],
+  center=attr(ttn.train.x, "scaled:center"),
+  scale=attr(ttn.train.x, "scaled:scale")
+)
+```
+
+```{r}
+ttn.train.y <- dmy[split,]$Survived.1
+ttn.test.y <- dmy[-split,]$Survived.1
+```
+
+
+## Predicting
+
+**Determine K value**
+```{r}
+sqrt(nrow(ttn.test.x))
+```
+
+```{r}
+pred.knn <- knn(
+  train=ttn.train.x,
+  test=ttn.test.x,
+  cl=ttn.train.y,
+  k=13
+)
+```
+
+
+## Model Evaluation
+
+```{r}
+confusionMatrix(
+  data=as.factor(pred.knn),
+  reference=as.factor(ttn.test.y),
+  positive="1"
+)
+```
+
+If we look both model, Logistic regression actually better at predicting the data (Recall 0.71) than KNN (Recall 0.68).
+
+# Conclusion
+
+In titanic incident, knowing who are survive is more important. So we use Recall to evaluate the model. And since we use recall, Logistic regression is performing better at predicting who survive than KNN model.
